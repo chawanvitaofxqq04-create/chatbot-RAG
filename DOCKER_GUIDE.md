@@ -321,3 +321,28 @@ docker-compose -f docker-compose.prod.yml down
 ```
 
 This is the recommended approach for production deployments.
+
+# 🎓 SWT System: Smart Curriculum Management Assistant
+**ระบบบริหารจัดการหลักสูตรอัจฉริยะ (TQF/มคอ.) ด้วยเทคโนโลยี Agentic AI**
+
+โปรเจกต์นี้คือระบบผู้ช่วยอัจฉริยะที่ออกแบบมาเพื่อช่วยจัดการเอกสารประกันคุณภาพการศึกษา (SWT.3 & SWT.5) สำหรับคณะวิศวกรรมศาสตร์และเทคโนโลยีอุตสาหกรรม โดยใช้พลังของ LLM ในการวิเคราะห์ข้อมูลทั้งจากเอกสาร (RAG) และฐานข้อมูล (SQL)
+
+## ✨ ฟีเจอร์เด่น (Key Features)
+- 🧠 **Agentic Routing:** ระบบวิเคราะห์เจตนาของผู้ใช้โดยอัตโนมัติ เพื่อเลือกใช้เครื่องมือที่เหมาะสม (RAG หรือ SQL)
+- 📊 **Auto-Chart Generation:** วิเคราะห์สถิติจากฐานข้อมูล (เช่น จำนวนผู้สมัคร, เกรดเฉลี่ย) และวาดกราฟ (Bar, Line, Pie) ให้โดยอัตโนมัติ
+- 📚 **Knowledge-Base RAG:** ค้นหาและตอบคำถามจากไฟล์ มคอ.3 และ มคอ.5 อย่างแม่นยำ พร้อมการอ้างอิงหลักฐาน ([CIT#])
+- 💬 **Streaming Interface:** หน้าจอแชทที่ตอบโต้ได้รวดเร็ว พร้อม Typing Indicator และ UI ที่ทันสมัย
+
+## 🛠️ เทคโนโลยีที่ใช้ (Tech Stack)
+- **Frontend:** React, TypeScript, Tailwind CSS, Recharts, Lucide React
+- **Backend:** FastAPI (Python), Gemini AI API
+- **Database:** PostgreSQL with pgvector (สำหรับเก็บข้อมูลสถิติและ Vector Embeddings)
+- **Deployment:** Docker & Docker Compose
+
+## 🚀 วิธีการติดตั้ง (Installation)
+1. Clone โปรเจกต์: `git clone https://github.com/chawanvitaofxqq04-create/RAG-Chatbot-Workshop.git`
+2. ตั้งค่า Environment Variables ในไฟล์ `.env`
+3. รันระบบผ่าน Docker: `docker-compose up --build`
+
+---
+**Developed by:** ชวัลวิชญ์ (Computer Engineering, Kalasin University)
