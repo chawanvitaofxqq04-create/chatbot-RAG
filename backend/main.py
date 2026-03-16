@@ -45,11 +45,32 @@ MAX_HISTORY = 10
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: verify DB connection
+    # Startup: verify DB connection and Create Tables
     try:
-        with engine.connect() as con:
+        with engine.begin() as con:  # ใช้ begin() เพื่อให้มัน Commit คำสั่งอัตโนมัติ
+            # 1. เช็คการเชื่อมต่อ
             con.execute(text("SELECT 1"))
-        print("✓ Database connected")
+            
+            # 2. สร้างตาราง chat_sessions
+            con.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id VARCHAR(100) PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            
+            # 3. สร้างตาราง chat_messages
+            con.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id SERIAL PRIMARY KEY,
+                    session_id VARCHAR(100) REFERENCES chat_sessions(id) ON DELETE CASCADE,
+                    role VARCHAR(20) NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+        print("✓ Database connected & Tables created successfully!")
     except Exception as e:
         print(f"✗ Database connection failed: {e}")
     yield
@@ -456,6 +477,32 @@ async def delete_document(doc_id: str):
         )
         return {"doc_id": doc_id, "deleted_chunks": res.rowcount}
 
+# ─── 🕒 ส่วนที่เพิ่มใหม่: ระบบประวัติการสนทนา ───────────────────────────
+
+@app.get("/sessions")
+async def get_all_sessions():
+    """ดึงรายชื่อ Session ID ทั้งหมดที่มีการคุยกันไว้"""
+    # ในที่นี้เราดึงจากตัวแปร sessions ที่เป็น In-memory
+    history_list = []
+    for s_id, msgs in sessions.items():
+        # สร้างหัวข้อแชทจากข้อความแรกที่คุย
+        first_msg = msgs[0]["content"][:30] + "..." if msgs else "แชทใหม่"
+        history_list.append({
+            "id": s_id,
+            "title": first_msg,
+            "created_at": "เพิ่งคุยเมื่อกี้" # ในอนาคตค่อยเก็บเวลาจริงลง DB
+        })
+    
+    # ถ้ายังไม่มีประวัติเลย ให้ส่งค่าว่างกลับไป
+    return history_list
+
+@app.get("/sessions/{session_id}/messages")
+async def get_session_messages(session_id: str):
+    """ดึงข้อความทั้งหมดใน Session นั้นๆ มาแสดงในหน้าแชท"""
+    if session_id not in sessions:
+        raise HTTPException(status_code=404, detail="ไม่พบประวัติการแชทนี้")
+    
+    return sessions[session_id]
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
+import computerImg from './assets/computer.jpg'; // ตั้งชื่อตัวแปรที่ชอบ
+
 import {
   sendChat,
   streamChat,
@@ -56,7 +58,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [useStream, setUseStream] = useState(true);
-  const [sessionId] = useState(generateSessionId);
+  const [sessionId, setSessionId] = useState(generateSessionId);
   const [showSidebar, setShowSidebar] = useState(false);
   const [documents, setDocuments] = useState<DocInfo[]>([]);
   const [health, setHealth] = useState<{ status: string; db: string } | null>(null);
@@ -69,6 +71,9 @@ export default function App() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const cancelStreamRef = useRef<(() => void) | null>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  // 1. เพิ่ม State สำหรับเก็บประวัติและ Session ปัจจุบัน
+  const [currentSessionId, setCurrentSessionId] = useState<string | number | null>(null);
+  const [history, setHistory] = useState<any[]>([]);
 
   const scrollToBottom = useCallback(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -110,6 +115,20 @@ export default function App() {
     const userMsg: Message = { role: "user", content: text, mode };
     setMessages((prev) => [...prev, userMsg]);
 
+    // 🌟🌟 ท่าไม้ตาย (Optimistic Update): ยัดชื่อแชทเข้า Sidebar ทันทีโดยไม่ง้อ Backend!
+    setHistory((prev) => {
+      // เช็คว่ามีแชทนี้โชว์ใน Sidebar หรือยัง
+      const isExist = prev.find((h) => h.id === sessionId);
+      if (isExist) return prev; // ถ้ามีแล้ว ไม่ต้องเพิ่มใหม่
+
+      // ถ้าเป็นแชทใหม่ ให้เอาข้อความแรกที่พิมพ์ไปทำเป็นหัวข้อแชท (ตัดคำถ้าเกิน 30 ตัวอักษร)
+      const newTitle = text.length > 30 ? text.slice(0, 30) + "..." : text;
+      return [{ id: sessionId, title: newTitle }, ...prev];
+    });
+
+    // ไฮไลต์ให้รู้ว่าตอนนี้กำลังคุยอยู่ในแชทนี้นะ
+    setCurrentSessionId(sessionId);
+
     if (useStream) {
       setStreaming(true);
       let assistantContent = "";
@@ -145,6 +164,9 @@ export default function App() {
             return updated;
           });
           setStreaming(false);
+
+          // ดึงประวัติจากหลังบ้านเพื่อ Sync ข้อมูลให้ชัวร์อีก 1 รอบตอน AI ตอบเสร็จ
+          fetchSessions();
         },
         (err) => {
           setError(err);
@@ -166,6 +188,9 @@ export default function App() {
             mode,
           },
         ]);
+
+        // ดึงประวัติเพื่อ Sync ข้อมูล
+        fetchSessions();
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Unknown error");
       } finally {
@@ -270,65 +295,214 @@ export default function App() {
     sql: { label: "SQL", icon: Database, color: "bg-green-600", desc: "Database query" },
   };
 
+  // 🌐 ฟังก์ชันสำหรับดึงข้อความเก่าจาก Backend
+  const fetchMessages = async (sessionId: string | number) => {
+    try {
+      // ⚠️ ตรงนี้ต้องเปลี่ยน URL ให้ตรงกับ FastAPI ของนายนะ (เช่น http://localhost:8000)
+      const response = await fetch(`http://localhost:8000/sessions/${sessionId}/messages`);
+
+      if (!response.ok) {
+        throw new Error("ดึงข้อมูลไม่สำเร็จ");
+      }
+
+      const data = await response.json(); // หรือ response.json() ขึ้นอยู่กับ library ที่ใช้
+      return data; // ควรจะได้ Array ของข้อความ [{role: 'user', content: '...'}, ...]
+    } catch (error) {
+      console.error("Error fetching messages:", error);
+      return []; // ถ้าพลาดให้ส่ง Array ว่างกลับไปก่อน หน้าจอจะได้ไม่ขาว
+    }
+  };
+
+  const fetchSessions = async () => {
+    try {
+      const response = await fetch(`http://localhost:8000/sessions`);
+      if (!response.ok) throw new Error("ดึงประวัติไม่สำเร็จ");
+      const data = await response.json();
+      setHistory(data);
+    } catch (error) {
+      console.error("Error fetching sessions:", error);
+    }
+  };
+
+  // 3. ส่วนของ useEffect (สั่งให้ทำงานตอนเปิดแอป)
+  useEffect(() => {
+    fetchSessions();
+  }, []);
+
+  // 🔵 แก้ไขพารามิเตอร์ให้รองรับทั้ง string และ number พร้อมจัดการข้อผิดพลาด
+  const handleSelectHistory = async (sessionId: string | number) => {
+    try {
+      // 1. ระบุ Session ID ปัจจุบันที่กำลังดูอยู่
+      setCurrentSessionId(sessionId);
+
+      // 2. เรียก API ไปดึงข้อความเก่า (ใส่ Loading สักนิดจะดีมาก)
+      const oldMessages = await fetchMessages(sessionId);
+
+      // 3. นำข้อความที่ได้มาเซ็ตลงใน State ของหน้าแชท
+      if (oldMessages) {
+        setMessages(oldMessages);
+      }
+    } catch (error) {
+      // 🔴 จัดการกรณี API พัง หรือหา Session ไม่เจอ
+      console.error("ไม่สามารถดึงข้อมูลแชทเก่าได้:", error);
+      alert("เกิดข้อผิดพลาดในการโหลดประวัติการสนทนา");
+    }
+  };
+
+  const handleNewChat = () => {
+    // 1. หยุด Stream ที่อาจจะค้างอยู่
+    if (cancelStreamRef.current) {
+      cancelStreamRef.current();
+      cancelStreamRef.current = null;
+    }
+
+    // 2. ปลดล็อกปุ่มส่งข้อความ (รีเซ็ตสถานะโหลด)
+    setLoading(false);
+    setStreaming(false);
+    setError(null);
+
+    // 3. เริ่ม Session ใหม่และล้างหน้าจอ
+    setCurrentSessionId(null);
+    setSessionId(generateSessionId());
+    setMessages([]);
+
+    // 4. (แถม) โฟกัสช่องพิมพ์อัตโนมัติ จะได้พิมพ์ต่อได้เลย
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
   return (
-    <div className="flex h-screen bg-slate-900 text-slate-100 overflow-hidden">
-      {/* ── Sidebar ── */}
-      <div className={`${showSidebar ? "w-72" : "w-0"} transition-all duration-300 overflow-hidden bg-slate-800 border-r border-slate-700 flex flex-col flex-shrink-0`}>
-        <div className="p-3 border-b border-slate-700 flex items-center justify-between">
+    <div className="flex h-screen bg-[#1a237e] text-white overflow-hidden">
+
+      {/* 🔵 Sidebar (โทนสีน้ำเงินเข้ม) */}
+      <div className={`${showSidebar ? "w-72" : "w-0"} transition-all duration-300 overflow-hidden bg-[#1a237e] border-r border-[#0f133d] flex flex-col flex-shrink-0 shadow-xl z-20`}>
+
+        {/* Header ของ Sidebar */}
+        <div className="p-3 border-b border-[#2c337d] flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BookOpen size={15} className="text-indigo-400" />
-            <h2 className="font-semibold text-slate-100 text-sm">Knowledge Base</h2>
+            <BookOpen size={15} className="text-indigo-300" />
+            <h2 className="font-semibold text-white text-sm">Knowledge Base</h2>
             {documents.length > 0 && (
-              <span className="text-xs bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded-full">
+              <span className="text-xs bg-indigo-500/20 text-white px-1.5 py-0.5 rounded-full">
                 {documents.length}
               </span>
             )}
           </div>
-          <button onClick={loadDocs} className="text-slate-500 hover:text-slate-300 transition p-1 rounded" title="Refresh">
+          <button onClick={loadDocs} className="text-indigo-300 hover:text-white hover:bg-[#2c337d]/50 transition p-1 rounded" title="Refresh">
             <RefreshCw size={13} />
           </button>
         </div>
 
-        <div className="p-3 border-b border-slate-700">
-          <div ref={dropZoneRef} onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave} className={`relative rounded-xl border-2 border-dashed transition-all duration-200 ${isDragging ? "border-indigo-400 bg-indigo-500/10" : "border-slate-600 hover:border-indigo-500/50 hover:bg-slate-700/30"}`}>
-            <label className="flex flex-col items-center gap-1.5 px-3 py-4 cursor-pointer">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${isDragging ? "bg-indigo-500/20" : "bg-slate-700"}`}>
-                <Upload size={16} className={isDragging ? "text-indigo-400" : "text-slate-400"} />
+        {/* โซน Dropzone ลากไฟล์ */}
+        {/* ☁️ โซน Dropzone: ปรับเส้นประให้สว่างและดู Modern ขึ้น */}
+        <div className="p-3 border-b border-[#2c337d]">
+          <div
+            ref={dropZoneRef}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            /* ✨ ปรับเส้นประเป็น border-indigo-300/50 เพื่อให้สว่างขึ้นชัดเจน */
+            className={`relative rounded-xl border-2 border-dashed transition-all duration-300 ${isDragging
+              ? "border-white bg-white/20 shadow-[0_0_15px_rgba(165,180,252,0.4)] scale-[1.02]"
+              : "border-indigo-300/40 bg-white/5 hover:border-indigo-200 hover:bg-white/10"
+              }`}
+          >
+            <label className="flex flex-col items-center gap-2 px-3 py-5 cursor-pointer">
+              {/* ✨ ไอคอนอัปโหลด: ปรับให้สว่างและดูเด่น */}
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-300 ${isDragging ? "bg-white text-[#1a237e]" : "bg-indigo-500/20 text-indigo-200 border border-indigo-400/30"
+                }`}>
+                <Upload size={18} className={isDragging ? "animate-bounce" : ""} />
               </div>
+
               <div className="text-center">
-                <p className="text-xs font-medium text-slate-300">{isDragging ? "วางไฟล์ที่นี่" : "ลากไฟล์มาวาง หรือคลิก"}</p>
-                <p className="text-xs text-slate-600 mt-0.5">.txt · .md · .csv · .json · .pdf</p>
+                <p className="text-xs font-semibold text-white tracking-wide">
+                  {isDragging ? "ปล่อยเพื่ออัปโหลด" : "ลากไฟล์มาวาง หรือคลิก"}
+                </p>
+                <p className="text-[10px] text-indigo-300/80 mt-1 font-medium italic">
+                  .txt · .md · .csv · .json · .pdf
+                </p>
               </div>
               <input type="file" accept=".txt,.md,.csv,.json,.pdf" multiple className="hidden" onChange={handleFileInputChange} />
             </label>
           </div>
+
+          {/* 🟢 ส่วนที่ต้องเพิ่ม: ประวัติการแชท (Chat History) */}
+          <div className="p-3 border-b border-[#2c337d] bg-[#151c66]">
+            <div className="flex items-center justify-between mb-2 px-1">
+              <h3 className="text-xs font-semibold text-indigo-200 flex items-center gap-1.5">
+                <Clock size={13} /> ประวัติการค้นหา
+              </h3>
+              {/* ปุ่มล้างแชทเพื่อเริ่มคุยใหม่ */}
+              <button
+                onClick={handleNewChat}
+                className="text-white hover:bg-indigo-500 bg-indigo-600 px-2 py-0.5 rounded text-[10px] transition"
+              >
+                + แชทใหม่
+              </button>
+            </div>
+
+            <div className="space-y-1 max-h-40 overflow-y-auto pr-1 scrollbar-thin">
+              {history.length === 0 ? (
+                <p className="text-[10px] text-indigo-400/60 italic px-1">ยังไม่มีประวัติ...</p>
+              ) : (
+                history.map((chat) => (
+                  <button
+                    key={chat.id}
+                    onClick={() => handleSelectHistory(chat.id)}
+                    className={`w-full text-left px-2 py-1.5 rounded-md text-xs truncate transition-all ${currentSessionId === chat.id
+                      ? "bg-indigo-500 text-white font-medium"
+                      : "text-indigo-200 hover:bg-[#2c337d] hover:text-white"
+                      }`}
+                  >
+                    {chat.title}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+          {/* 🟢 จบส่วนที่เพิ่ม */}
+
+          {/* คิวอัปโหลด */}
           {uploadQueue.length > 0 && (
             <div className="mt-2 space-y-1.5">
               {uploadQueue.map((u, i) => (
-                <div key={i} className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs ${u.status === "uploading" ? "bg-indigo-500/10 border border-indigo-500/20" : u.status === "done" ? "bg-emerald-500/10 border border-emerald-500/20" : "bg-red-500/10 border border-red-500/20"}`}>
-                  {u.status === "uploading" && <Loader2 size={11} className="animate-spin text-indigo-400 flex-shrink-0" />}
+                <div key={i} className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-xs ${u.status === "uploading" ? "bg-white/10 border border-white/20" : u.status === "done" ? "bg-emerald-500/20 border border-emerald-500/30" : "bg-red-500/20 border border-red-500/30"}`}>
+                  {u.status === "uploading" && <Loader2 size={11} className="animate-spin text-white flex-shrink-0" />}
                   {u.status === "done" && <CheckCircle2 size={11} className="text-emerald-400 flex-shrink-0" />}
                   {u.status === "error" && <AlertCircle size={11} className="text-red-400 flex-shrink-0" />}
-                  <span className={`truncate flex-1 ${u.status === "uploading" ? "text-indigo-300" : u.status === "done" ? "text-emerald-300" : "text-red-300"}`}>{u.file}</span>
-                  {u.status === "error" && <button onClick={() => setUploadQueue(q => q.filter((_, j) => j !== i))}><X size={10} className="text-red-400" /></button>}
+                  <span className="truncate flex-1 text-white">{u.file}</span>
+                  {u.status === "error" && <button onClick={() => setUploadQueue(q => q.filter((_, j) => j !== i))}><X size={10} className="text-red-300" /></button>}
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 space-y-1.5 scrollbar-thin">
+
+        {/* รายการไฟล์ที่อัปโหลดแล้ว */}
+        {/* 🔵 รายการไฟล์ที่อัปโหลดแล้ว: ปรับให้ "สว่าง" และเด่นขึ้น */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2 scrollbar-thin">
           {documents.map((doc) => (
-            <div key={doc.doc_id} className="flex items-center justify-between p-2.5 bg-slate-700/40 hover:bg-slate-700/70 rounded-lg transition group">
-              <button className="flex items-center gap-2 min-w-0 flex-1 text-left" onClick={() => handleViewDoc(doc.doc_id)}>
-                <div className="w-6 h-6 rounded-md bg-slate-700 flex items-center justify-center flex-shrink-0">{getFileIcon(doc.doc_id)}</div>
+            /* ✨ 1. ตัวกรอบ: ใช้ bg-white/10 (ขาวโปร่งแสง) และ border-indigo-400/50 (ฟ้าสว่าง) */
+            <div key={doc.doc_id} className="flex items-center justify-between p-3 bg-white/10 border border-indigo-400/40 hover:border-indigo-400 hover:bg-white/20 rounded-xl transition-all duration-200 group shadow-lg shadow-indigo-900/20">
+              <button className="flex items-center gap-3 min-w-0 flex-1 text-left" onClick={() => handleViewDoc(doc.doc_id)}>
+
+                {/* ✨ 2. กล่องไอคอน: ใช้สีฟ้าสว่างตัดกับพื้นหลัง */}
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/30 flex items-center justify-center flex-shrink-0 border border-indigo-400/20">
+                  <FileText size={14} className="text-indigo-200" />
+                </div>
+
                 <div className="min-w-0">
-                  <div className="font-medium text-slate-200 group-hover:text-indigo-300 truncate text-xs">{doc.doc_id}</div>
-                  <div className="text-xs text-slate-600">{doc.chunk_count} chunks</div>
+                  {/* ⚪️ 3. ชื่อไฟล์: สีขาวชัดเจน */}
+                  <div className="font-semibold text-white truncate text-xs tracking-wide">{doc.doc_id}</div>
+                  {/* 🔵 4. จำนวน Chunks: สีฟ้าอ่อน (Indigo-300) */}
+                  <div className="text-[10px] text-indigo-300 font-medium mt-0.5">{doc.chunk_count} chunks</div>
                 </div>
               </button>
-              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition flex-shrink-0">
-                <button onClick={() => handleDeleteDoc(doc.doc_id)} className="text-slate-500 hover:text-red-400 p-1 transition"><Trash2 size={12} /></button>
+
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                <button onClick={() => handleDeleteDoc(doc.doc_id)} className="text-indigo-200 hover:text-red-400 p-1.5 transition-colors">
+                  <Trash2 size={13} />
+                </button>
               </div>
             </div>
           ))}
@@ -336,24 +510,39 @@ export default function App() {
       </div>
 
       {/* ── Main Chat Area ── */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* --- โค้ดส่วนที่คุณส่งมา (ฝั่งซ้าย) --- */}
-        <header className="topbar-glass sticky top-0 z-10 px-4 py-2.5 flex items-center justify-between gap-3">
+      {/* ⬜️ ── Main Chat Area (โซนสีขาวสะอาดตา) ── */}
+      <div className="flex-1 flex flex-col min-w-0 bg-white">
+
+        {/* Header แชท */}
+        {/* 🔵 Header แชท: เปลี่ยนเป็นสีน้ำเงินเข้ม #1a237e และขอบ Medium Blue */}
+        <header className="sticky top-0 z-10 px-4 py-2.5 flex items-center justify-between gap-3 bg-[#1a237e] border-b border-[#2c337d] shadow-md">
           <div className="flex items-center gap-3">
-            <button onClick={() => setShowSidebar(!showSidebar)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700"><PanelLeft size={15} /></button>
+            {/* ปุ่มเปิด Sidebar: สีฟ้าอ่อน */}
+            <button onClick={() => setShowSidebar(!showSidebar)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-indigo-300 hover:text-white hover:bg-[#2c337d] transition-colors">
+              <PanelLeft size={15} />
+            </button>
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow"><Sparkles size={14} className="text-white" /></div>
+              {/* กรอบโลโก้: มีรูปคอมพิวเตอร์ และขอบจางๆ */}
+              <div className="w-7 h-7 rounded-lg bg-[#0f133d] flex items-center justify-center shadow-sm overflow-hidden border border-[#2c337d]">
+                <img
+                  src={computerImg}
+                  alt="Logo"
+                  className="w-full h-full object-cover"
+                />
+              </div>
               <div>
-                <h1 className="text-sm font-semibold text-slate-100 leading-none">ระบบบริหารหลักสูตร (SWT System)</h1>
-                <p className="text-xs text-slate-500 leading-none mt-0.5">Gemini · RAG · SQL · Agentic</p>
+                {/* หัวข้อ: สีขาวสะอาด */}
+                <h1 className="text-sm font-semibold text-white leading-none">RAG Chatbot</h1>
+                {/* คำบรรยาย: สีฟ้าอ่อน indigo-300 */}
+                <p className="text-xs text-indigo-300 leading-none mt-0.5">Gemini · RAG · SQL · Agentic</p>
               </div>
             </div>
           </div>
 
-          {/* 🌟 🌟 🌟 วางโค้ดส่วนฝั่งขวาตั้งแต่ตรงนี้เป็นต้นไป 🌟 🌟 🌟 */}
+          {/* ── ฝั่งขวาของ Header ── */}
           <div className="flex items-center gap-2">
-            {/* 1. ปุ่มเลือกโหมด */}
-            <div className="flex border-b-0 border border-slate-700 rounded-lg overflow-hidden">
+            {/* กล่อง Mode: พื้นหลังน้ำเงินเข้ม ขอบ Medium Blue */}
+            <div className="flex border border-[#2c337d] rounded-lg overflow-hidden bg-[#0f133d]">
               {(Object.keys(modeConfig) as Mode[]).map((m) => {
                 const cfg = modeConfig[m];
                 const Icon = cfg.icon;
@@ -361,7 +550,7 @@ export default function App() {
                   <button
                     key={m}
                     onClick={() => setMode(m)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition border-r last:border-r-0 border-slate-700 ${mode === m ? "bg-indigo-600 text-white" : "bg-slate-800 text-slate-400 hover:text-slate-200"
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition border-r last:border-r-0 border-[#2c337d] ${mode === m ? "bg-indigo-600 text-white" : "text-indigo-200 hover:bg-[#2c337d]"
                       }`}
                   >
                     <Icon size={12} /> {cfg.label}
@@ -370,31 +559,33 @@ export default function App() {
               })}
             </div>
 
-            {/* 🏥 2. สัญลักษณ์ DB Health (ที่หายไป) */}
+            {/* 🟢 สัญลักษณ์ DB Status: ปรับเป็นโทนเรืองแสงบนพื้นมืด */}
             {health && (
               <div
-                className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-md ${health.status === "ok"
-                  ? "text-emerald-400 bg-emerald-400/10 border border-emerald-400/20"
-                  : "text-red-400 bg-red-400/10 border border-red-400/20"
+                className={`flex items-center gap-1 text-[10px] px-2.5 py-1.5 rounded-md border shadow-sm ${health.status === "ok"
+                  ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                  : "bg-red-500/20 text-red-400 border-red-500/30"
                   }`}
+                title={health.status === "ok" ? "Database Connected" : "Database Error"}
               >
                 {health.status === "ok" ? (
-                  <CheckCircle2 size={10} />
+                  <CheckCircle2 size={12} className="text-emerald-400" />
                 ) : (
-                  <AlertCircle size={10} />
+                  <AlertCircle size={12} className="text-red-400" />
                 )}
-                <span className="font-bold uppercase">DB</span>
+                <span className="font-bold uppercase tracking-wide">DB</span>
               </div>
             )}
           </div>
         </header>
 
+        {/* พื้นที่แชทหลัก */}
         <div className="flex-1 overflow-y-auto px-4 py-6 space-y-5 scrollbar-thin">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full min-h-[60vh] space-y-6 fade-in">
               <div className="text-center">
-                <h2 className="text-xl font-semibold text-slate-100">ระบบบริหารหลักสูตร (SWT System)</h2>
-                <p className="text-sm text-slate-400 mt-1">อัปโหลดเอกสาร มคอ. หรือทดสอบดึงข้อมูลกราฟยอดขายได้เลย</p>
+                <h2 className="text-xl font-semibold text-slate-900">ระบบสอบถามข้อมูลเอกสาร</h2>
+                <p className="text-sm text-slate-500 mt-1">อัปโหลดเอกสารที่เมนูด้านซ้าย หรือพิมพ์คำถามเพื่อเริ่มต้นใช้งาน</p>
               </div>
             </div>
           )}
@@ -403,28 +594,50 @@ export default function App() {
             <MessageBubble key={i} msg={msg} />
           ))}
 
+          {/* 🔵 ส่วน Loading: ปรับสีเป็นโทนน้ำเงินเข้มให้คุมโทน */}
           {loading && (
             <div className="flex gap-3 items-start message-enter">
-              <div className="w-7 h-7 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center mt-0.5"><Bot size={14} className="text-indigo-400" /></div>
-              <div className="bg-slate-800 border border-slate-700 rounded-2xl px-4 py-3"><Loader2 size={16} className="animate-spin text-slate-400" /></div>
+              {/* ไอคอนบอท: เปลี่ยนจากม่วงเป็นพื้นน้ำเงินจางๆ ไอคอนน้ำเงินเข้ม */}
+              <div className="w-7 h-7 rounded-full bg-[#1a237e]/10 border border-[#2c337d]/30 flex items-center justify-center mt-0.5 shadow-sm">
+                <Bot size={14} className="text-[#1a237e]" />
+              </div>
+
+              {/* กล่อง Loading: เปลี่ยนจากเทาดำเป็นสีขาวขอบน้ำเงิน (หรือจะใช้ bg-[#1a237e] ก็ได้ถ้าชอบเข้มๆ) */}
+              <div className="bg-white border border-[#2c337d] rounded-2xl px-4 py-3 shadow-sm">
+                <Loader2 size={16} className="animate-spin text-[#1a237e]" />
+              </div>
             </div>
           )}
 
           <div ref={chatEndRef} />
         </div>
 
-        <div className="border-t border-slate-700 bg-slate-800/80 backdrop-blur-sm p-4">
+        {/* กล่องพิมพ์ข้อความ */}
+        {/* ⌨️ กล่องพิมพ์ข้อความ: ปรับตัวหนังสือข้างในเป็นสีดำ (text-black) */}
+        <div className="border-t border-[#2c337d] bg-[#1a237e]/95 backdrop-blur-sm p-4">
           <div className="max-w-3xl mx-auto flex gap-2 items-end">
             <textarea
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="พิมพ์คำถาม หรือสั่งวาดกราฟ..."
-              className="flex-1 resize-none bg-slate-700 border border-slate-600 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+              placeholder="พิมพ์คำถาม หรือสั่งดึงข้อมูล..."
+              /* ✨ ปรับ text-black (ตอนพิมพ์) และ placeholder-slate-600 (ตอนยังไม่พิมพ์) ให้เข้มขึ้น */
+              className="flex-1 resize-none bg-white border border-[#3949ab] rounded-xl px-4 py-3 text-sm text-black placeholder-slate-600 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 shadow-sm font-medium"
               style={{ maxHeight: "120px" }}
             />
-            <button onClick={handleSend} className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl"><Send size={16} /></button>
+            {/* 🔵 ปุ่มส่ง: ใช้สีน้ำเงินเข้มให้เข้ากับธีมหลัก */}
+            {/* 🔵 ปุ่มส่ง: สีน้ำเงินเดิม + ขอบขาวสว่าง + เอฟเฟกต์ Glow */}
+            {/* 🔵 ปุ่มส่ง: เอาขอบขาวหนาและ Glow ออก ใช้ขอบสีฟ้าอ่อนจางๆ เพื่อให้ดูคลีนและเข้าชุดกัน */}
+            <button
+              onClick={handleSend}
+              /* ✨ เอา border-2 border-white, shadow-*, hover:shadow-* ออก
+                 เพิ่ม border border-indigo-300/40 เพื่อให้ขอบอ่อนโยนลง
+                 ปรับสี Hover */
+              className="px-4 py-3 bg-[#1a237e] hover:bg-indigo-600 text-white rounded-xl transition-all duration-300 border border-indigo-300/40 hover:border-indigo-300 active:scale-95 flex items-center justify-center shadow-sm"
+            >
+              <Send size={16} className="text-white" />
+            </button>
           </div>
         </div>
       </div>
@@ -434,7 +647,7 @@ export default function App() {
 }
 
 /* ─── 📊 Data Chart Component (เวอร์ชันแก้ไขเออร์เรอร์แล้ว) ─── */
-const MY_CUSTOM_COLORS = ['#818cf8', '#a78bfa', '#f472b6', '#2dd4bf', '#fbbf24', '#60a5fa'];
+const MY_CUSTOM_COLORS = ['#818cf8', '#8e71ffff', '#f472b6', '#2dd4bf', '#fbbf24', '#60a5fa'];
 
 function DataChart({ data, type = "bar" }: { data: any[], type?: string }) {
   if (!data || data.length === 0) return null;
@@ -476,7 +689,7 @@ function DataChart({ data, type = "bar" }: { data: any[], type?: string }) {
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
             <XAxis dataKey={xKey} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
             <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-            <RechartsTooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', borderRadius: '8px' }} />
+            <RechartsTooltip contentStyle={{ backgroundColor: '#4088fcff', borderColor: '#334155', borderRadius: '8px' }} />
             <Line type="monotone" dataKey={yKey} stroke="#818cf8" strokeWidth={3} dot={{ r: 4, fill: '#818cf8' }} activeDot={{ r: 6 }} />
           </LineChart>
         ) : (
@@ -583,38 +796,64 @@ function MessageBubble({ msg }: { msg: Message }) {
     } catch (e) { return null; }
   };
 
+  // 🌟 จุดที่แก้: ดักจับและซ่อน JSON เพื่อเอามาวาดกราฟโดยเฉพาะ
+  let displayContent = msg.content || "";
+  const charts: React.ReactNode[] = [];
+
+  if (!isUser && displayContent) {
+    // Regex นี้จะดักจับทั้งแบบที่คลุมมาด้วย ```json และแบบที่โผล่มาดื้อๆ ว่า json{...}
+    const jsonRegex = /```json\s*([\s\S]*?)```|json\s*({[\s\S]*?})/g;
+
+    displayContent = displayContent.replace(jsonRegex, (match, codeBlock, rawJson) => {
+      const targetJson = codeBlock || rawJson;
+      if (targetJson) {
+        const chart = parseChartData(targetJson);
+        if (chart) {
+          // ถ้าเป็นกราฟ เอาไปเก็บใน Array แล้ว "ลบข้อความทิ้ง" (return "")
+          charts.push(<DataChart key={charts.length} data={chart.chartData} type={chart.chartType} />);
+          return "";
+        }
+      }
+      return match; // ถ้าแปลงไม่ได้ ก็ปล่อยไว้เหมือนเดิม
+    });
+  }
+
   return (
     <div className={`flex gap-3 message-enter ${isUser ? "justify-end" : "justify-start"}`}>
       {!isUser && (
-        <div className="w-7 h-7 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center mt-0.5">
-          <Bot size={14} className="text-indigo-400" />
+        /* 🔵 ไอคอนบอท: เปลี่ยนเป็นพื้นน้ำเงินอ่อน ขอบน้ำเงินจางๆ และไอคอนน้ำเงินเข้ม */
+        <div className="w-7 h-7 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center mt-0.5 shadow-sm">
+          <Bot size={14} className="text-[#1a237e]" />
         </div>
       )}
       <div className={`max-w-2xl ${isUser ? "" : "flex-1"}`}>
-        <div className={`rounded-2xl px-4 py-3 text-sm ${isUser ? "bg-indigo-600 text-white rounded-br-sm" : "bg-slate-800 border border-slate-700 text-slate-100 rounded-bl-sm"}`}>
+
+        {/* 🔵 กล่องข้อความ: ฝั่ง User เป็นน้ำเงินเข้ม (#1a237e) / ฝั่ง Bot เป็นสีขาวสะอาดขอบเทา */}
+        <div className={`rounded-2xl px-4 py-3 text-sm shadow-sm ${isUser ? "bg-[#1a237e] text-white rounded-br-sm" : "bg-white border border-slate-200 text-slate-900 rounded-bl-sm"}`}>
           {isUser ? (
             <span className="whitespace-pre-wrap">{msg.content}</span>
           ) : (
-            <div className="prose-chat">
-              {/* 🌟 เช็คว่าถ้าข้อความยังไม่มา (ตอนเริ่ม Stream) ให้โชว์จุดเด้งๆ */}
+            <div className="prose-chat text-slate-800">
               {!msg.content ? (
+                /* 🔵 อนิเมชันจุด Loading: เปลี่ยนเป็นโทนน้ำเงินเข้มโปร่งแสง */
                 <div className="flex gap-1.5 py-2 items-center">
-                  <span className="w-1.5 h-1.5 bg-indigo-400/60 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                  <span className="w-1.5 h-1.5 bg-indigo-400/60 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                  <span className="w-1.5 h-1.5 bg-indigo-400/60 rounded-full animate-bounce"></span>
+                  <span className="w-1.5 h-1.5 bg-[#1a237e]/60 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                  <span className="w-1.5 h-1.5 bg-[#1a237e]/60 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+                  <span className="w-1.5 h-1.5 bg-[#1a237e]/60 rounded-full animate-bounce"></span>
                 </div>
               ) : (
-                <ReactMarkdown components={{
-                  code({ inline, className, children }: any) {
-                    const match = /language-(\w+)/.exec(className || "");
-                    const codeStr = String(children).replace(/\n$/, "");
-                    if (!inline && match && match[1] === "json") {
-                      const chart = parseChartData(codeStr);
-                      if (chart) return <DataChart data={chart.chartData} type={chart.chartType} />;
+                <>
+                  <ReactMarkdown components={{
+                    code({ inline, className, children }: any) {
+                      return <code className={className}>{children}</code>;
                     }
-                    return <code className={className}>{children}</code>;
-                  }
-                }}>{msg.content}</ReactMarkdown>
+                  }}>
+                    {displayContent}
+                  </ReactMarkdown>
+
+                  {/* 🌟 กราฟต่อท้ายข้อความ */}
+                  {charts}
+                </>
               )}
             </div>
           )}
@@ -623,21 +862,24 @@ function MessageBubble({ msg }: { msg: Message }) {
         {!isUser && (
           <div className="mt-1.5 px-1 space-y-1.5">
             <div className="flex items-center gap-2">
+              {/* ป้าย Mode (ปรับตาม modeBadge ที่เราแก้เป็นโทนน้ำเงินไว้ก่อนหน้านี้) */}
               {msg.mode && <span className={`text-[10px] px-1.5 py-0.5 rounded border ${modeBadge[msg.mode]}`}>{msg.mode.toUpperCase()}</span>}
-              {msg.latencyMs && <span className="text-[10px] text-slate-600 flex items-center gap-1"><Clock size={10} /> {Math.round(msg.latencyMs)}ms</span>}
+              {msg.latencyMs && <span className="text-[10px] text-slate-400 flex items-center gap-1"><Clock size={10} /> {Math.round(msg.latencyMs)}ms</span>}
             </div>
 
             {msg.citations && msg.citations.length > 0 && (
               <div>
-                <button onClick={() => setShowCitations(!showCitations)} className="text-xs text-indigo-400 flex items-center gap-1">
+                {/* 🔵 ปุ่ม Sources: เปลี่ยนเป็นสีน้ำเงินเข้ม */}
+                <button onClick={() => setShowCitations(!showCitations)} className="text-xs text-[#1a237e] hover:text-indigo-800 transition-colors flex items-center gap-1 font-medium">
                   <FileText size={11} /> {msg.citations.length} sources {showCitations ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                 </button>
                 {showCitations && (
                   <div className="mt-1 space-y-1">
                     {msg.citations.map((c, idx) => (
-                      <div key={idx} className="text-[11px] bg-slate-800/50 border border-slate-700 p-2 rounded-lg">
-                        <div className="font-bold text-indigo-300">{c.title || c.id}</div>
-                        <div className="text-slate-400 line-clamp-2">{c.content}</div>
+                      /* 🔵 กล่องอ้างอิง: พื้นหลังขาวขุ่น หัวข้อน้ำเงินเข้ม */
+                      <div key={idx} className="text-[11px] bg-slate-50 border border-slate-200 p-2 rounded-lg shadow-sm">
+                        <div className="font-bold text-[#1a237e]">{c.title || c.id}</div>
+                        <div className="text-slate-600 line-clamp-2 mt-0.5">{c.content}</div>
                       </div>
                     ))}
                   </div>
@@ -647,10 +889,11 @@ function MessageBubble({ msg }: { msg: Message }) {
 
             {msg.toolTrace && msg.toolTrace.length > 0 && (
               <div>
-                <button onClick={() => setShowTrace(!showTrace)} className="text-xs text-slate-600 flex items-center gap-1">
+                <button onClick={() => setShowTrace(!showTrace)} className="text-xs text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1">
                   <Code2 size={11} /> Tool trace {showTrace ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                 </button>
-                {showTrace && <pre className="mt-1 text-[10px] bg-slate-900 p-2 rounded border border-slate-700 overflow-x-auto text-slate-400 font-mono">{JSON.stringify(msg.toolTrace, null, 2)}</pre>}
+                {/* 💻 Tool trace: คงสีดำไว้เพื่อให้ JSON อ่านง่ายเหมือนเดิมครับ */}
+                {showTrace && <pre className="mt-1 text-[10px] bg-slate-900 p-2.5 rounded-xl border border-slate-800 overflow-x-auto text-slate-300 font-mono shadow-inner">{JSON.stringify(msg.toolTrace, null, 2)}</pre>}
               </div>
             )}
           </div>
