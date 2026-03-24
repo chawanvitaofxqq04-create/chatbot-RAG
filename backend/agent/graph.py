@@ -293,10 +293,11 @@ def run_agent(engine: Engine, question: str, mode: str = "auto") -> dict:
         state = route_intent(state)
 
     # Unknown intent: return early with a helpful message
+    # Unknown intent: return early with a helpful message
     if state.intent == "unknown":
         state.answer_text = (
-            "คำถามนี้ไม่เกี่ยวกับข้อมูลในระบบ "
-            "กรุณาถามเกี่ยวกับผู้สมัคร นักศึกษา สินค้า คำสั่งซื้อ หรือโครงสร้างฐานข้อมูลครับ"
+            "คำถามนี้อาจจะอยู่นอกเหนือข้อมูลที่ผมมีครับ "
+            "กรุณาถามเกี่ยวกับ สินค้าไอที สเปกคอมพิวเตอร์ ออเดอร์การสั่งซื้อ หรือนโยบายการเคลมสินค้านะครับ"
         )
         state.citations = []
         state.done = True

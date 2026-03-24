@@ -46,3 +46,12 @@ CREATE TABLE IF NOT EXISTS order_items (
     unit_price    NUMERIC(10,2) NOT NULL,
     line_total    NUMERIC(12,2) GENERATED ALWAYS AS (quantity * unit_price) STORED
 );
+
+-- ==========================================
+-- ตารางใหม่: สำหรับเก็บคำถามของผู้ใช้งาน (ตารางโล่งๆ)
+-- ==========================================
+CREATE TABLE IF NOT EXISTS user_questions_log (
+    log_id        SERIAL PRIMARY KEY,
+    question_text TEXT NOT NULL,
+    created_at    TIMESTAMP DEFAULT NOW()
+);

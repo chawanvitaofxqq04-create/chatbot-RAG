@@ -647,6 +647,7 @@ export default function App() {
 }
 
 /* ─── 📊 Data Chart Component (เวอร์ชันแก้ไขเออร์เรอร์แล้ว) ─── */
+/* ─── 📊 Data Chart Component (ฉบับแก้ไขตัวหนังสือไม่เฉียง + รองรับแนวนอน) ─── */
 const MY_CUSTOM_COLORS = ['#818cf8', '#8e71ffff', '#f472b6', '#2dd4bf', '#fbbf24', '#60a5fa'];
 
 function DataChart({ data, type = "bar" }: { data: any[], type?: string }) {
@@ -663,43 +664,75 @@ function DataChart({ data, type = "bar" }: { data: any[], type?: string }) {
     [yKey]: Number(item[yKey])
   }));
 
-  const isPie = type.toLowerCase() === 'pie';
-  const isLine = type.toLowerCase() === 'line';
+  const chartType = type.toLowerCase();
+  const isPie = chartType === 'pie';
+  const isLine = chartType === 'line';
+  const isHorizontal = chartType === 'horizontal_bar';
 
   return (
-    <div className="h-64 w-full mt-4 bg-slate-900 border border-slate-700 rounded-xl p-4 overflow-hidden fade-in shadow-lg">
+    <div className="h-72 w-full mt-4 bg-slate-900 border border-slate-700 rounded-xl p-4 overflow-hidden fade-in shadow-lg">
       <div className="text-xs text-slate-400 mb-2 font-medium flex items-center gap-1.5">
         <Zap size={12} className="text-amber-400" />
-        {isPie ? 'Pie Chart' : isLine ? 'Line Chart' : 'Bar Chart'} Generated
+        {isHorizontal ? 'Horizontal Bar' : isPie ? 'Pie Chart' : isLine ? 'Line Chart' : 'Bar Chart'} Generated
       </div>
       <ResponsiveContainer width="100%" height="100%">
         {isPie ? (
           <PieChart>
             <Pie data={formattedData} dataKey={yKey} nameKey={xKey} cx="50%" cy="50%" outerRadius={70} label>
-              {/* ✨ แก้ไขจุดนี้: ใช้ MY_CUSTOM_COLORS ให้ตรงกับที่ประกาศไว้ข้างบน */}
               {formattedData.map((_, index) => (
                 <Cell key={`cell-${index}`} fill={MY_CUSTOM_COLORS[index % MY_CUSTOM_COLORS.length]} />
               ))}
             </Pie>
             <RechartsTooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', borderRadius: '8px' }} />
-            <Legend wrapperStyle={{ fontSize: '12px' }} />
+            <Legend wrapperStyle={{ fontSize: '11px' }} />
           </PieChart>
         ) : isLine ? (
-          <LineChart data={formattedData}>
+          <LineChart data={formattedData} margin={{ bottom: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-            <XAxis dataKey={xKey} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-            <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-            <RechartsTooltip contentStyle={{ backgroundColor: '#4088fcff', borderColor: '#334155', borderRadius: '8px' }} />
-            <Line type="monotone" dataKey={yKey} stroke="#818cf8" strokeWidth={3} dot={{ r: 4, fill: '#818cf8' }} activeDot={{ r: 6 }} />
+            <XAxis dataKey={xKey} stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} dy={10} />
+            <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
+            <RechartsTooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', borderRadius: '8px' }} />
+            <Line type="monotone" dataKey={yKey} stroke="#818cf8" strokeWidth={3} />
           </LineChart>
+        ) : isHorizontal ? (
+          /* 🟢 กราฟแนวนอน: ชื่อจะอยู่ฝั่งซ้ายและวางแนวราบเสมอ */
+          <BarChart data={formattedData} layout="vertical" margin={{ left: 40, right: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={true} vertical={false} />
+            <XAxis type="number" stroke="#94a3b8" fontSize={10} hide />
+            <YAxis
+              dataKey={xKey}
+              type="category"
+              stroke="#94a3b8"
+              fontSize={11}
+              width={100}
+              tickLine={false}
+              axisLine={false}
+            />
+            <RechartsTooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', borderRadius: '8px' }} />
+            <Bar dataKey={yKey} fill="#818cf8" radius={[0, 4, 4, 0]} barSize={20}>
+              {formattedData.map((_, index) => (
+                <Cell key={`cell-${index}`} fill={MY_CUSTOM_COLORS[index % MY_CUSTOM_COLORS.length]} />
+              ))}
+            </Bar>
+          </BarChart>
         ) : (
-          <BarChart data={formattedData}>
+          /* 🔵 กราฟแนวตั้งแบบไม่เฉียง */
+          <BarChart data={formattedData} margin={{ bottom: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-            <XAxis dataKey={xKey} stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-            <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-            <RechartsTooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', borderRadius: '8px', color: '#f8fafc' }} cursor={{ fill: '#334155', opacity: 0.4 }} />
-            <Bar dataKey={yKey} fill="#818cf8" radius={[4, 4, 0, 0]} maxBarSize={50}>
-              {/* ✨ แก้ไขจุดนี้ด้วย: ใช้ MY_CUSTOM_COLORS ให้ถูกต้อง */}
+            <XAxis
+              dataKey={xKey}
+              stroke="#94a3b8"
+              fontSize={11}
+              interval={0}
+              angle={0} // ✨ ตั้งตรง 0 องศา
+              textAnchor="middle"
+              dy={10}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
+            <RechartsTooltip contentStyle={{ backgroundColor: '#1e293b', borderColor: '#334155', borderRadius: '8px' }} />
+            <Bar dataKey={yKey} fill="#818cf8" radius={[4, 4, 0, 0]} barSize={40}>
               {formattedData.map((_, index) => (
                 <Cell key={`cell-${index}`} fill={MY_CUSTOM_COLORS[index % MY_CUSTOM_COLORS.length]} />
               ))}
