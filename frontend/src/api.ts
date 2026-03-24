@@ -23,7 +23,7 @@ export interface DocInfo {
   chunk_count: number;
 }
 
-const BASE = "";
+const BASE = "https://chatbot-rag-h6oj.onrender.com";
 
 export async function sendChat(
   message: string,
