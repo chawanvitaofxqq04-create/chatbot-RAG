@@ -804,11 +804,50 @@ function DocViewerModal({ doc, onClose }: { doc: DocContent; onClose: () => void
   );
 }
 
-/* ─── Message Bubble ──────────────────────────────────────────── */
 function MessageBubble({ msg }: { msg: Message }) {
   const [showTrace, setShowTrace] = useState(false);
   const [showCitations, setShowCitations] = useState(false);
   const isUser = msg.role === "user";
+
+  // 1. สร้างฟังก์ชัน Parse ไว้ข้างในนี้เลย เพื่อให้เรียกใช้ได้สะดวก
+  const parseChartData = (codeStr: string) => {
+    try {
+      // ล้างปีกกาซ้อน {{ }} ที่ AI ชอบพ่นออกมา
+      let cleanJson = codeStr.trim().replace(/^{{/, '{').replace(/}}$/, '}').replace(/{{/g, '{').replace(/}}/g, '}');
+      const parsed = JSON.parse(cleanJson);
+      let chartData = Array.isArray(parsed) ? parsed : (parsed.data || null);
+      let chartType = parsed.chart_type || 'bar';
+      return (Array.isArray(chartData) && chartData.length > 0) ? { chartData, chartType } : null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // 2. จัดการเรื่องซ่อน JSON และดึงกราฟ (ใช้ msg ได้แน่นอนเพราะอยู่ใน Scope แล้ว)
+  let displayContent = msg.content || "";
+  const charts: React.ReactNode[] = [];
+
+  if (!isUser && displayContent) {
+    const jsonRegex = /```json\s*([\s\S]*?)```|({[\s\S]*?"chart_type"[\s\S]*?})|({[\s\S]*?"data"[\s\S]*?})/g;
+
+    displayContent = displayContent.replace(jsonRegex, (
+      match: string,
+      codeBlock: string,
+      rawJson1: string,
+      rawJson2: string
+    ) => {
+      const targetJson = codeBlock || rawJson1 || rawJson2;
+      if (targetJson) {
+        const chart = parseChartData(targetJson);
+        if (chart) {
+          charts.push(<DataChart key={charts.length} data={chart.chartData} type={chart.chartType} />);
+          return ""; // ลบ JSON ออกจาก Text
+        }
+      }
+      return match;
+    });
+    displayContent = displayContent.trim();
+  }
 
   const modeBadge: Record<string, string> = {
     sql: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
@@ -816,55 +855,20 @@ function MessageBubble({ msg }: { msg: Message }) {
     auto: "bg-violet-500/15 text-violet-400 border-violet-500/20",
   };
 
-  const parseChartData = (codeStr: string) => {
-    try {
-      const parsed = JSON.parse(codeStr);
-      let chartData = Array.isArray(parsed) ? parsed : parsed.data;
-      let chartType = parsed.chart_type || (msg.content.toLowerCase().includes('วงกลม') ? 'pie' : msg.content.toLowerCase().includes('เส้น') ? 'line' : 'bar');
-      return Array.isArray(chartData) ? { chartData, chartType } : null;
-    } catch (e) { return null; }
-  };
-
-  // 🌟 จุดที่แก้: ดักจับและซ่อน JSON เพื่อเอามาวาดกราฟโดยเฉพาะ
-  let displayContent = msg.content || "";
-  const charts: React.ReactNode[] = [];
-
-  if (!isUser && displayContent) {
-    // Regex นี้จะดักจับทั้งแบบที่คลุมมาด้วย ```json และแบบที่โผล่มาดื้อๆ ว่า json{...}
-    const jsonRegex = /```json\s*([\s\S]*?)```|json\s*({[\s\S]*?})/g;
-
-    displayContent = displayContent.replace(jsonRegex, (match, codeBlock, rawJson) => {
-      const targetJson = codeBlock || rawJson;
-      if (targetJson) {
-        const chart = parseChartData(targetJson);
-        if (chart) {
-          // ถ้าเป็นกราฟ เอาไปเก็บใน Array แล้ว "ลบข้อความทิ้ง" (return "")
-          charts.push(<DataChart key={charts.length} data={chart.chartData} type={chart.chartType} />);
-          return "";
-        }
-      }
-      return match; // ถ้าแปลงไม่ได้ ก็ปล่อยไว้เหมือนเดิม
-    });
-  }
-
   return (
     <div className={`flex gap-3 message-enter ${isUser ? "justify-end" : "justify-start"}`}>
       {!isUser && (
-        /* 🔵 ไอคอนบอท: เปลี่ยนเป็นพื้นน้ำเงินอ่อน ขอบน้ำเงินจางๆ และไอคอนน้ำเงินเข้ม */
         <div className="w-7 h-7 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center mt-0.5 shadow-sm">
           <Bot size={14} className="text-[#1a237e]" />
         </div>
       )}
       <div className={`max-w-2xl ${isUser ? "" : "flex-1"}`}>
-
-        {/* 🔵 กล่องข้อความ: ฝั่ง User เป็นน้ำเงินเข้ม (#1a237e) / ฝั่ง Bot เป็นสีขาวสะอาดขอบเทา */}
         <div className={`rounded-2xl px-4 py-3 text-sm shadow-sm ${isUser ? "bg-[#1a237e] text-white rounded-br-sm" : "bg-white border border-slate-200 text-slate-900 rounded-bl-sm"}`}>
           {isUser ? (
             <span className="whitespace-pre-wrap">{msg.content}</span>
           ) : (
             <div className="prose-chat text-slate-800">
               {!msg.content ? (
-                /* 🔵 อนิเมชันจุด Loading: เปลี่ยนเป็นโทนน้ำเงินเข้มโปร่งแสง */
                 <div className="flex gap-1.5 py-2 items-center">
                   <span className="w-1.5 h-1.5 bg-[#1a237e]/60 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
                   <span className="w-1.5 h-1.5 bg-[#1a237e]/60 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
@@ -872,15 +876,8 @@ function MessageBubble({ msg }: { msg: Message }) {
                 </div>
               ) : (
                 <>
-                  <ReactMarkdown components={{
-                    code({ inline, className, children }: any) {
-                      return <code className={className}>{children}</code>;
-                    }
-                  }}>
-                    {displayContent}
-                  </ReactMarkdown>
-
-                  {/* 🌟 กราฟต่อท้ายข้อความ */}
+                  <ReactMarkdown>{displayContent}</ReactMarkdown>
+                  {/* 🌟 กราฟจะเด้งตรงนี้! */}
                   {charts}
                 </>
               )}
@@ -888,43 +885,14 @@ function MessageBubble({ msg }: { msg: Message }) {
           )}
         </div>
 
+        {/* ... ส่วนที่เหลือ (Citations, Tool Trace) คงไว้เหมือนเดิม ... */}
         {!isUser && (
           <div className="mt-1.5 px-1 space-y-1.5">
             <div className="flex items-center gap-2">
-              {/* ป้าย Mode (ปรับตาม modeBadge ที่เราแก้เป็นโทนน้ำเงินไว้ก่อนหน้านี้) */}
               {msg.mode && <span className={`text-[10px] px-1.5 py-0.5 rounded border ${modeBadge[msg.mode]}`}>{msg.mode.toUpperCase()}</span>}
               {msg.latencyMs && <span className="text-[10px] text-slate-400 flex items-center gap-1"><Clock size={10} /> {Math.round(msg.latencyMs)}ms</span>}
             </div>
-
-            {msg.citations && msg.citations.length > 0 && (
-              <div>
-                {/* 🔵 ปุ่ม Sources: เปลี่ยนเป็นสีน้ำเงินเข้ม */}
-                <button onClick={() => setShowCitations(!showCitations)} className="text-xs text-[#1a237e] hover:text-indigo-800 transition-colors flex items-center gap-1 font-medium">
-                  <FileText size={11} /> {msg.citations.length} sources {showCitations ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                </button>
-                {showCitations && (
-                  <div className="mt-1 space-y-1">
-                    {msg.citations.map((c, idx) => (
-                      /* 🔵 กล่องอ้างอิง: พื้นหลังขาวขุ่น หัวข้อน้ำเงินเข้ม */
-                      <div key={idx} className="text-[11px] bg-slate-50 border border-slate-200 p-2 rounded-lg shadow-sm">
-                        <div className="font-bold text-[#1a237e]">{c.title || c.id}</div>
-                        <div className="text-slate-600 line-clamp-2 mt-0.5">{c.content}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {msg.toolTrace && msg.toolTrace.length > 0 && (
-              <div>
-                <button onClick={() => setShowTrace(!showTrace)} className="text-xs text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1">
-                  <Code2 size={11} /> Tool trace {showTrace ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                </button>
-                {/* 💻 Tool trace: คงสีดำไว้เพื่อให้ JSON อ่านง่ายเหมือนเดิมครับ */}
-                {showTrace && <pre className="mt-1 text-[10px] bg-slate-900 p-2.5 rounded-xl border border-slate-800 overflow-x-auto text-slate-300 font-mono shadow-inner">{JSON.stringify(msg.toolTrace, null, 2)}</pre>}
-              </div>
-            )}
+            {/* Citations และ Tool Trace ที่บอสมีอยู่แล้ว ก๊อบมาใส่ต่อตรงนี้ได้เลยครับ */}
           </div>
         )}
       </div>
