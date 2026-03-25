@@ -85,10 +85,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    # เปลี่ยนจาก ["*"] เป็นลิงก์เว็บ Vercel ของบอส (ห้ามมีเครื่องหมาย / ปิดท้ายนะ)
+    # ต้องใส่ลิงก์ Vercel ของบอสเข้าไปตรงนี้ (ห้ามมี / ปิดท้าย)
     allow_origins=[
-        "http://localhost:5173",
-        "https://chatbot-rag-azure.vercel.app" 
+        "http://localhost:5173", 
+        "https://chatbot-rag-azure.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
