@@ -13,7 +13,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 
 # Directory to store original uploaded files
-UPLOAD_DIR = Path("/app/uploads")
+UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 from dotenv import load_dotenv
@@ -85,7 +85,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # เปลี่ยนจาก ["*"] เป็นลิงก์เว็บ Vercel ของบอส (ห้ามมีเครื่องหมาย / ปิดท้ายนะ)
+    allow_origins=[
+        "http://localhost:5173",
+        "https://chatbot-rag-azure.vercel.app" 
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
