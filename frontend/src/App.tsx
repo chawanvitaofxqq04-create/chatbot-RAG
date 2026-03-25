@@ -298,28 +298,22 @@ export default function App() {
   };
 
   // 🌐 ฟังก์ชันสำหรับดึงข้อความเก่าจาก Backend
+  // 🌐 ฟังก์ชันสำหรับดึงข้อความเก่าจาก Backend
   const fetchMessages = async (sessionId: string | number) => {
     try {
-      // ⚠️ ตรงนี้ต้องเปลี่ยน URL ให้ตรงกับ FastAPI ของนายนะ (เช่น http://localhost:8000)
-      const response = await fetch(`http://localhost:8000/sessions/${sessionId}/messages`);
-
-      if (!response.ok) {
-        throw new Error("ดึงข้อมูลไม่สำเร็จ");
-      }
-
-      const data = await response.json(); // หรือ response.json() ขึ้นอยู่กับ library ที่ใช้
-      return data; // ควรจะได้ Array ของข้อความ [{role: 'user', content: '...'}, ...]
+      // ✅ เรียกใช้ getSessionMessages จาก api.ts แทนการใช้ fetch localhost แบบเก่า
+      const data = await getSessionMessages(sessionId);
+      return data;
     } catch (error) {
       console.error("Error fetching messages:", error);
-      return []; // ถ้าพลาดให้ส่ง Array ว่างกลับไปก่อน หน้าจอจะได้ไม่ขาว
+      return [];
     }
   };
 
   const fetchSessions = async () => {
     try {
-      const response = await fetch(`http://localhost:8000/sessions`);
-      if (!response.ok) throw new Error("ดึงประวัติไม่สำเร็จ");
-      const data = await response.json();
+      // ✅ เรียกใช้ getSessions จาก api.ts
+      const data = await getSessions();
       setHistory(data);
     } catch (error) {
       console.error("Error fetching sessions:", error);
