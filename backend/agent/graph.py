@@ -20,6 +20,7 @@ from backend.rag.prompts import (
     ROUTE_SYSTEM,
     EVALUATE_SYSTEM,
     REWRITE_SYSTEM,
+    SQL_ANSWER_SYSTEM, # <--- ต้องเพิ่มอันนี้เข้ามา!
 )
 from backend.sql.function_calling_sql import sql_rag_answer
 # ตัวอย่างการเพิ่มในไฟล์ที่บอสใช้รวม Tools
@@ -95,7 +96,9 @@ def retrieve_docs(state: AgentState, engine: Engine) -> AgentState:
 
 # ─── Node: Query SQL ────────────────────────────────────────────────
 def query_sql_node(state: AgentState, engine: Engine) -> AgentState:
-    """Use function calling to generate and execute SQL."""
+    """เรียกใช้ SQL Agent และต้องคุมผลลัพธ์ไม่ให้มีตารางแตก"""
+    # หมายเหตุ: ถ้า sql_rag_answer ของบอสแก้ไม่ได้ 
+    # เราจะมาคุมกำเนิดมันที่ Node generate_answer แทนครับ
     result = sql_rag_answer(engine, state.current_question)
     state.sql_result = result
     state.tool_trace.append({
@@ -193,21 +196,38 @@ def rewrite_query(state: AgentState) -> AgentState:
 
 # ─── Node: Generate Answer ──────────────────────────────────────────
 def generate_answer(state: AgentState) -> AgentState:
-    """Generate final answer with citations from context."""
+    """สร้างคำตอบสุดท้าย โดยบังคับใช้กฎ No Table และเรียกใช้ Chart Tool"""
     client = _get_client()
 
-    # For SQL intent, use the SQL RAG answer directly
-    if state.intent == "sql" and state.sql_result:
-        state.answer_text = state.sql_result.get("answer_text", "")
-        state.citations = []
-        if state.sql_result.get("sql"):
-            state.citations.append({
-                "id": "sql_query",
-                "title": "SQL Query",
-                "content": state.sql_result["sql"],
-            })
-        state.done = True
-        return state
+    # 🚨 ถ้าเป็นเรื่อง SQL ให้ใช้ SQL_ANSWER_SYSTEM คุม!
+    if state.intent == "sql" or (state.intent == "mixed" and state.sql_result):
+        system_prompt = SQL_ANSWER_SYSTEM
+        # เตรียมข้อมูลจาก SQL ให้ AI เห็นชัดๆ
+        sql_data = json.dumps(state.sql_result.get("results", []), ensure_ascii=False, default=str)
+        user_content = f"คำถาม: {state.current_question}\nข้อมูลจาก Database: {sql_data}"
+    else:
+        # ถ้าเป็น RAG ปกติ
+        system_prompt = RAG_SYSTEM
+        context = "\n\n".join([f"[CIT{i}] {c['content']}" for i, c in enumerate(state.context_chunks)])
+        user_content = RAG_USER.format(question=state.original_question, context=context)
+
+    # 🚨 🚨 จุดสำคัญ: ต้องใส่ tools=[create_bar_chart] เข้าไปใน config ด้วย!
+    # เพื่อให้ Gemini รู้ว่ามันมี "พลัง" ในการสั่งวาดกราฟ
+    config = types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        temperature=0.2,
+        tools=[create_bar_chart] # <--- บอสต้องใส่บรรทัดนี้ครับ!
+    )
+
+    resp = client.models.generate_content(
+        model=settings.chat_model,
+        contents=[types.Content(role="user", parts=[types.Part(text=user_content)])],
+        config=config,
+    )
+
+    state.answer_text = resp.text or "ไม่สามารถสร้างคำตอบได้"
+    state.done = True
+    return state
 
     # For docs / mixed intent, use RAG
     if state.context_chunks:
