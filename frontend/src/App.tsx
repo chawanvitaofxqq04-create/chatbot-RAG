@@ -11,6 +11,8 @@ import {
   healthCheck,
   getDocumentContent,
   getOriginalFileUrl,
+  getSessions,         // 🟢 เพิ่มอันนี้
+  getSessionMessages,
   hasOriginalFile,
   type Citation,
   type DocInfo,

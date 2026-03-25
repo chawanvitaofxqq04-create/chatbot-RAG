@@ -23,6 +23,18 @@ export interface DocInfo {
   chunk_count: number;
 }
 
+// 🟢 เพิ่ม Interface สำหรับประวัติแชท
+export interface SessionInfo {
+  id: string;
+  title: string;
+  created_at: string;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
 const BASE = "https://chatbot-rag-h6oj.onrender.com";
 
 export async function sendChat(
@@ -99,9 +111,6 @@ export function streamChat(
           }
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
-            // Determine event type from the previous event line
-            // SSE format: event: X\ndata: Y\n\n
-            // We need to track the current event type
             try {
               const parsed = JSON.parse(data);
               if (parsed.citations !== undefined || parsed.answer_text !== undefined) {
@@ -110,7 +119,6 @@ export function streamChat(
                 // trace event, ignore for now
               }
             } catch {
-              // Plain text token
               onToken(data);
             }
           }
@@ -211,5 +219,19 @@ export async function deleteDocument(docId: string): Promise<void> {
 
 export async function healthCheck(): Promise<{ status: string; db: string }> {
   const res = await fetch(`${BASE}/health`);
+  return res.json();
+}
+
+// ─── 🟢 ฟังก์ชันใหม่ที่เพิ่มเข้ามาสำหรับระบบประวัติแชท ───
+
+export async function getSessions(): Promise<SessionInfo[]> {
+  const res = await fetch(`${BASE}/sessions`);
+  if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.statusText}`);
+  return res.json();
+}
+
+export async function getSessionMessages(sessionId: string | number): Promise<ChatMessage[]> {
+  const res = await fetch(`${BASE}/sessions/${encodeURIComponent(sessionId)}/messages`);
+  if (!res.ok) throw new Error(`Failed to fetch messages for session: ${res.statusText}`);
   return res.json();
 }
