@@ -22,7 +22,13 @@ from backend.rag.prompts import (
     REWRITE_SYSTEM,
 )
 from backend.sql.function_calling_sql import sql_rag_answer
+# ตัวอย่างการเพิ่มในไฟล์ที่บอสใช้รวม Tools
+from backend.sql.sql_tool import create_bar_chart
 
+tools = [
+    # ... tools เดิมที่มีอยู่ ...,
+    create_bar_chart
+]
 
 MAX_REWRITE_ITERATIONS = 2
 
